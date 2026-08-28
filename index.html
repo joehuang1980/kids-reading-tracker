@@ -12,17 +12,119 @@
     main { width: min(100%, 720px); margin: 0 auto; }
     .card { background: #fff; border-radius: 22px; padding: 28px; box-shadow: 0 8px 28px rgba(0,0,0,.08); }
     h1 { margin: 0 0 8px; font-size: clamp(30px, 6vw, 44px); }
-    p { margin: 0; font-size: 18px; line-height: 1.6; }
-    .status { margin-top: 24px; padding: 16px; border-radius: 14px; background: #eef7ee; font-weight: 700; }
+    p { margin: 0 0 18px; font-size: 18px; line-height: 1.6; }
+    label { display: block; margin: 18px 0 8px; font-weight: 700; font-size: 17px; }
+    input, button { width: 100%; min-height: 52px; border-radius: 14px; font-size: 18px; }
+    input { border: 1px solid #cbd5e1; padding: 12px 14px; background: #fff; }
+    button { margin-top: 14px; border: 0; padding: 12px 16px; background: #1f2937; color: #fff; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    .status { margin-top: 18px; padding: 14px 16px; border-radius: 14px; background: #f3f4f6; line-height: 1.5; }
+    .status.success { background: #eef7ee; }
+    .status.error { background: #fff1f2; }
+    .result { margin-top: 18px; padding: 18px; border-radius: 14px; background: #f8fafc; }
+    .book-title { font-size: 22px; font-weight: 800; line-height: 1.4; }
+    .hint { margin-top: 8px; color: #64748b; font-size: 14px; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <main>
     <section class="card">
       <h1>📚 我的閱讀紀錄</h1>
-      <p>家庭閱讀紀錄系統正在建置中。</p>
-      <div class="status">✓ GitHub Pages 首頁骨架載入成功</div>
+      <p>先輸入 ISBN，確認系統能自動找到書名。</p>
+
+      <label for="isbn">ISBN</label>
+      <input id="isbn" type="text" inputmode="numeric" autocomplete="off" placeholder="例如：9789864796747" aria-describedby="isbnHint">
+      <div id="isbnHint" class="hint">可輸入含連字號或空白的 ISBN-10 / ISBN-13。</div>
+
+      <button id="lookupBtn" type="button">查詢書籍</button>
+
+      <div id="status" class="status hidden" role="status" aria-live="polite"></div>
+
+      <div id="result" class="result hidden">
+        <div class="hint">書名</div>
+        <div id="bookTitle" class="book-title"></div>
+      </div>
+
+      <div id="manualBox" class="hidden">
+        <label for="manualTitle">手動輸入書名</label>
+        <input id="manualTitle" type="text" autocomplete="off" placeholder="若系統查不到，可在此輸入書名">
+      </div>
     </section>
   </main>
+
+  <script>
+    const isbnInput = document.getElementById('isbn');
+    const lookupBtn = document.getElementById('lookupBtn');
+    const statusBox = document.getElementById('status');
+    const resultBox = document.getElementById('result');
+    const bookTitle = document.getElementById('bookTitle');
+    const manualBox = document.getElementById('manualBox');
+
+    function normalizeIsbn(value) {
+      return value.toUpperCase().replace(/[^0-9X]/g, '');
+    }
+
+    function isValidIsbnShape(isbn) {
+      return /^\d{13}$/.test(isbn) || /^\d{9}[0-9X]$/.test(isbn);
+    }
+
+    function showStatus(message, type = '') {
+      statusBox.textContent = message;
+      statusBox.className = `status ${type}`.trim();
+    }
+
+    function resetResult() {
+      resultBox.classList.add('hidden');
+      manualBox.classList.add('hidden');
+      bookTitle.textContent = '';
+    }
+
+    async function lookupBook() {
+      resetResult();
+      const isbn = normalizeIsbn(isbnInput.value);
+      isbnInput.value = isbn;
+
+      if (!isValidIsbnShape(isbn)) {
+        showStatus('請輸入 10 碼或 13 碼的有效 ISBN 格式。', 'error');
+        manualBox.classList.remove('hidden');
+        return;
+      }
+
+      lookupBtn.disabled = true;
+      lookupBtn.textContent = '查詢中…';
+      showStatus('正在查詢書籍資料…');
+
+      try {
+        const endpoint = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}`;
+        const response = await fetch(endpoint);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        const data = await response.json();
+        const title = data.items?.[0]?.volumeInfo?.title?.trim();
+
+        if (title) {
+          bookTitle.textContent = title;
+          resultBox.classList.remove('hidden');
+          showStatus('已找到書籍資料。', 'success');
+        } else {
+          showStatus('查不到這本書，請手動輸入書名。', 'error');
+          manualBox.classList.remove('hidden');
+        }
+      } catch (error) {
+        console.error(error);
+        showStatus('目前無法連線查詢書籍資料，請稍後再試或手動輸入書名。', 'error');
+        manualBox.classList.remove('hidden');
+      } finally {
+        lookupBtn.disabled = false;
+        lookupBtn.textContent = '查詢書籍';
+      }
+    }
+
+    lookupBtn.addEventListener('click', lookupBook);
+    isbnInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') lookupBook();
+    });
+  </script>
 </body>
 </html>
