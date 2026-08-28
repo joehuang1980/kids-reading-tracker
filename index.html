@@ -54,6 +54,9 @@
   </main>
 
   <script>
+    // 填入你的 Google Books API Key；留空則以無 Key 模式（共享配額）呼叫
+    const GOOGLE_BOOKS_API_KEY = 'AIzaSyDF3FnMOTqgrJkRpW1Mrf6uhxnHTXUpowQ';
+
     const isbnInput = document.getElementById('isbn');
     const lookupBtn = document.getElementById('lookupBtn');
     const statusBox = document.getElementById('status');
@@ -96,7 +99,8 @@
       showStatus('正在查詢書籍資料…');
 
       try {
-        const endpoint = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}`;
+        const keyParam = GOOGLE_BOOKS_API_KEY ? `&key=${encodeURIComponent(GOOGLE_BOOKS_API_KEY)}` : '';
+        const endpoint = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}${keyParam}`;
         const response = await fetch(endpoint);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
