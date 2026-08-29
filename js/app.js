@@ -116,7 +116,7 @@ async function handleSubmit() {
   const isbn   = normalizeIsbn($('isbn').value);
   const title  = (_book?.title || $('manualTitle').value).trim();
   const date   = $('readingDate').value;
-  const reader = $('reader').value;
+  const reader = $('readerSelect').value;
 
   // Stage 5: Validation
   if (!title)  { showStatus('請輸入或確認書名。', 'error'); return; }
@@ -170,7 +170,7 @@ async function handleSubmit() {
 function _afterSubmit(reader, date) {
   $('isbn').value = '';
   resetBookResult();
-  $('reader').value = reader;
+  $('readerSelect').value = reader;
   $('readingDate').value = date;
   $('submitBtn').disabled = false;
 }
@@ -206,7 +206,7 @@ async function handleScan() {
 // ─── Init ───────────────────────────────────────────────────────────────────
 function init() {
   $('readingDate').value = new Date().toISOString().slice(0, 10);
-  $('reader').innerHTML  = CONFIG.READERS
+  $('readerSelect').innerHTML  = CONFIG.READERS
     .map(r => `<option value="${r}">${r}</option>`).join('');
 
   _badgeUpdate();
