@@ -1,0 +1,15 @@
+{
+  "name": "我的閱讀紀錄",
+  "short_name": "閱讀紀錄",
+  "description": "小朋友閱讀追蹤系統",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#f7f5ef",
+  "theme_color": "#1f2937",
+  "lang": "zh-Hant",
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "assets/icons/icon.svg",     "sizes": "any",     "type": "image/svg+xml" }
+  ]
+}

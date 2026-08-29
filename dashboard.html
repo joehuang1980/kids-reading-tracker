@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f7f5ef">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="閱讀紀錄">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+  <title>閱讀統計</title>
+</head>
+<body>
+  <main>
+    <!-- Stat cards (Stage 12) -->
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-number" id="statMonth">–</div>
+        <div class="stat-label">本月閱讀</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-number" id="statYear">–</div>
+        <div class="stat-label">今年閱讀</div>
+      </div>
+      <div class="stat-card" style="grid-column: 1 / -1;">
+        <div class="stat-number" id="statTotal">–</div>
+        <div class="stat-label">全部紀錄</div>
+      </div>
+    </div>
+
+    <!-- Per reader -->
+    <div class="card">
+      <h2>👤 閱讀者</h2>
+      <div id="readerRows" class="reader-rows">
+        <div class="empty"><div class="empty-icon">⏳</div>載入中…</div>
+      </div>
+    </div>
+
+    <!-- Monthly bar chart -->
+    <div class="card">
+      <h2>📅 近 12 個月閱讀量</h2>
+      <div id="barChart" class="bar-chart"></div>
+    </div>
+  </main>
+
+  <nav class="bottom-nav" aria-label="主選單">
+    <a href="index.html"     class="nav-item"><span class="nav-icon">➕</span>新增</a>
+    <a href="history.html"   class="nav-item"><span class="nav-icon">📋</span>紀錄</a>
+    <a href="dashboard.html" class="nav-item active"><span class="nav-icon">📊</span>統計</a>
+  </nav>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/dashboard.js"></script>
+</body>
+</html>

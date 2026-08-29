@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="114" fill="#1f2937"/>
+  <!-- Book shadow -->
+  <rect x="150" y="190" width="232" height="172" rx="10" fill="rgba(0,0,0,0.35)"/>
+  <!-- Book pages -->
+  <rect x="136" y="172" width="232" height="172" rx="10" fill="#f8fafc"/>
+  <!-- Spine shadow -->
+  <rect x="136" y="172" width="28" height="172" rx="10" fill="#e2e8f0"/>
+  <!-- Spine highlight -->
+  <rect x="136" y="172" width="14" height="172" rx="8" fill="#cbd5e1"/>
+  <!-- Text lines -->
+  <rect x="182" y="208" width="140" height="8" rx="4" fill="#94a3b8"/>
+  <rect x="182" y="228" width="118" height="8" rx="4" fill="#94a3b8"/>
+  <rect x="182" y="248" width="132" height="8" rx="4" fill="#94a3b8"/>
+  <rect x="182" y="268" width="102" height="8" rx="4" fill="#94a3b8"/>
+  <rect x="182" y="288" width="125" height="8" rx="4" fill="#94a3b8"/>
+  <rect x="182" y="308" width="110" height="8" rx="4" fill="#94a3b8"/>
+  <!-- Bookmark -->
+  <path d="M 316 172 L 316 226 L 300 214 L 284 226 L 284 172 Z" fill="#f59e0b"/>
+</svg>

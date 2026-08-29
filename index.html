@@ -4,131 +4,100 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f7f5ef">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="閱讀紀錄">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
   <title>我的閱讀紀錄</title>
-  <style>
-    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1f2937; background: #f7f5ef; }
-    * { box-sizing: border-box; }
-    body { margin: 0; min-height: 100vh; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); }
-    main { width: min(100%, 720px); margin: 0 auto; }
-    .card { background: #fff; border-radius: 22px; padding: 28px; box-shadow: 0 8px 28px rgba(0,0,0,.08); }
-    h1 { margin: 0 0 8px; font-size: clamp(30px, 6vw, 44px); }
-    p { margin: 0 0 18px; font-size: 18px; line-height: 1.6; }
-    label { display: block; margin: 18px 0 8px; font-weight: 700; font-size: 17px; }
-    input, button { width: 100%; min-height: 52px; border-radius: 14px; font-size: 18px; }
-    input { border: 1px solid #cbd5e1; padding: 12px 14px; background: #fff; }
-    button { margin-top: 14px; border: 0; padding: 12px 16px; background: #1f2937; color: #fff; font-weight: 700; cursor: pointer; }
-    button:disabled { opacity: .6; cursor: wait; }
-    .status { margin-top: 18px; padding: 14px 16px; border-radius: 14px; background: #f3f4f6; line-height: 1.5; }
-    .status.success { background: #eef7ee; }
-    .status.error { background: #fff1f2; }
-    .result { margin-top: 18px; padding: 18px; border-radius: 14px; background: #f8fafc; }
-    .book-title { font-size: 22px; font-weight: 800; line-height: 1.4; }
-    .hint { margin-top: 8px; color: #64748b; font-size: 14px; }
-    .hidden { display: none; }
-  </style>
 </head>
 <body>
   <main>
     <section class="card">
       <h1>📚 我的閱讀紀錄</h1>
-      <p>先輸入 ISBN，確認系統能自動找到書名。</p>
 
+      <!-- Stage 4: ISBN input + camera scan button -->
       <label for="isbn">ISBN</label>
-      <input id="isbn" type="text" inputmode="numeric" autocomplete="off" placeholder="例如：9789864796747" aria-describedby="isbnHint">
-      <div id="isbnHint" class="hint">可輸入含連字號或空白的 ISBN-10 / ISBN-13。</div>
+      <div class="btn-row">
+        <input id="isbn" type="text" inputmode="numeric" autocomplete="off"
+               placeholder="例如：9789864796747" aria-describedby="isbnHint">
+        <button id="scanBtn" class="btn-scan" type="button"
+                title="相機掃描 ISBN" aria-label="相機掃描 ISBN">📷</button>
+      </div>
+      <div id="isbnHint" class="hint">可輸入含連字號的 ISBN-10 / ISBN-13，或點 📷 相機掃描。</div>
 
-      <button id="lookupBtn" type="button">查詢書籍</button>
+      <!-- Stage 4: Scanner container -->
+      <div id="scanner-container" class="hidden">
+        <div id="reader"></div>
+        <div class="scanner-hint">對準書背條碼，保持 10–30 cm</div>
+      </div>
+
+      <button id="lookupBtn" type="button" class="mt-4">查詢書籍</button>
 
       <div id="status" class="status hidden" role="status" aria-live="polite"></div>
 
-      <div id="result" class="result hidden">
-        <div class="hint">書名</div>
-        <div id="bookTitle" class="book-title"></div>
+      <!-- Stage 13: Book result with cover image -->
+      <div id="result" class="book-result hidden">
+        <img id="bookCover" class="book-cover hidden" alt="書籍封面">
+        <div id="coverPh" class="book-cover-ph">📖</div>
+        <div class="book-info">
+          <div class="hint">書名</div>
+          <div id="bookTitle" class="book-title"></div>
+          <!-- Stage 14: Author / publisher -->
+          <div id="bookMeta" class="book-meta"></div>
+        </div>
       </div>
 
+      <!-- Fallback manual title input -->
       <div id="manualBox" class="hidden">
         <label for="manualTitle">手動輸入書名</label>
-        <input id="manualTitle" type="text" autocomplete="off" placeholder="若系統查不到，可在此輸入書名">
+        <input id="manualTitle" type="text" autocomplete="off"
+               placeholder="若系統查不到，可在此輸入書名">
       </div>
+
+      <!-- Stage 5: Complete form -->
+      <div id="formBox" class="hidden">
+        <div class="divider"></div>
+
+        <label for="readingDate">閱讀日期</label>
+        <input id="readingDate" type="date">
+
+        <label for="reader">閱讀者</label>
+        <select id="reader"></select>
+
+        <!-- Stage 8: Submit button -->
+        <button id="submitBtn" class="btn-success mt-4" type="button">送出閱讀紀錄</button>
+      </div>
+
+      <!-- Stage 16: Offline queue badge -->
+      <button id="syncBadge" class="sync-badge hidden" type="button"
+              aria-label="等待同步的離線紀錄，點擊重試">
+        ⏳ 等待同步
+      </button>
     </section>
   </main>
 
+  <!-- Bottom navigation -->
+  <nav class="bottom-nav" aria-label="主選單">
+    <a href="index.html"     class="nav-item active"><span class="nav-icon">➕</span>新增</a>
+    <a href="history.html"   class="nav-item"><span class="nav-icon">📋</span>紀錄</a>
+    <a href="dashboard.html" class="nav-item"><span class="nav-icon">📊</span>統計</a>
+  </nav>
+
+  <!-- Stage 4: html5-qrcode for barcode scanning -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/isbn.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/scanner.js"></script>
+  <script src="js/app.js"></script>
+
+  <!-- Stage 15: PWA service worker registration -->
   <script>
-    // 填入你的 Google Books API Key；留空則以無 Key 模式（共享配額）呼叫
-    const GOOGLE_BOOKS_API_KEY = 'AIzaSyDF3FnMOTqgrJkRpW1Mrf6uhxnHTXUpowQ';
-
-    const isbnInput = document.getElementById('isbn');
-    const lookupBtn = document.getElementById('lookupBtn');
-    const statusBox = document.getElementById('status');
-    const resultBox = document.getElementById('result');
-    const bookTitle = document.getElementById('bookTitle');
-    const manualBox = document.getElementById('manualBox');
-
-    function normalizeIsbn(value) {
-      return value.toUpperCase().replace(/[^0-9X]/g, '');
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js').catch(() => {});
     }
-
-    function isValidIsbnShape(isbn) {
-      return /^\d{13}$/.test(isbn) || /^\d{9}[0-9X]$/.test(isbn);
-    }
-
-    function showStatus(message, type = '') {
-      statusBox.textContent = message;
-      statusBox.className = `status ${type}`.trim();
-    }
-
-    function resetResult() {
-      resultBox.classList.add('hidden');
-      manualBox.classList.add('hidden');
-      bookTitle.textContent = '';
-    }
-
-    async function lookupBook() {
-      resetResult();
-      const isbn = normalizeIsbn(isbnInput.value);
-      isbnInput.value = isbn;
-
-      if (!isValidIsbnShape(isbn)) {
-        showStatus('請輸入 10 碼或 13 碼的有效 ISBN 格式。', 'error');
-        manualBox.classList.remove('hidden');
-        return;
-      }
-
-      lookupBtn.disabled = true;
-      lookupBtn.textContent = '查詢中…';
-      showStatus('正在查詢書籍資料…');
-
-      try {
-        const keyParam = GOOGLE_BOOKS_API_KEY ? `&key=${encodeURIComponent(GOOGLE_BOOKS_API_KEY)}` : '';
-        const endpoint = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}${keyParam}`;
-        const response = await fetch(endpoint);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-        const data = await response.json();
-        const title = data.items?.[0]?.volumeInfo?.title?.trim();
-
-        if (title) {
-          bookTitle.textContent = title;
-          resultBox.classList.remove('hidden');
-          showStatus('已找到書籍資料。', 'success');
-        } else {
-          showStatus('查不到這本書，請手動輸入書名。', 'error');
-          manualBox.classList.remove('hidden');
-        }
-      } catch (error) {
-        console.error(error);
-        showStatus('目前無法連線查詢書籍資料，請稍後再試或手動輸入書名。', 'error');
-        manualBox.classList.remove('hidden');
-      } finally {
-        lookupBtn.disabled = false;
-        lookupBtn.textContent = '查詢書籍';
-      }
-    }
-
-    lookupBtn.addEventListener('click', lookupBook);
-    isbnInput.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') lookupBook();
-    });
   </script>
 </body>
 </html>
