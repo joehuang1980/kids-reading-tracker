@@ -1,13 +1,13 @@
-// Book lookup (Google Books / Open Library / 博客來) + Google Apps Script integration (Stage 7–8, 13–14)
+// Book lookup (Google Books / Open Library / 全國新書資訊網 / 博客來) + Google Apps Script integration (Stage 7–8, 13–14)
 
 // Stage 13–14: fetch book metadata including cover, author, publisher
 // 依序查詢多個來源，中文書在 Google Books 常查不到，因此加上：
 //   1. Google Books
 //   2. Open Library（部分中文書）
-//   3. 博客來（透過 Apps Script 代查，避開瀏覽器跨網域限制）
+//   3. 國家圖書館全國新書資訊網 → 博客來（透過 Apps Script 代查，避開瀏覽器跨網域限制）
 // 任一來源找到書名就回傳；全部失敗且都是網路錯誤時拋出錯誤，讓畫面顯示「無法連線」。
 async function fetchBookByIsbn(isbn) {
-  const sources = [fetchFromGoogleBooks, fetchFromOpenLibrary, fetchFromBooksComTw];
+  const sources = [fetchFromGoogleBooks, fetchFromOpenLibrary, fetchFromTaiwanSources];
   let errors = 0;
   for (const source of sources) {
     try {
@@ -69,8 +69,8 @@ async function fetchFromOpenLibrary(isbn) {
   };
 }
 
-// 需在 Apps Script 部署含 lookupBook() 的新版本
-async function fetchFromBooksComTw(isbn) {
+// 全國新書資訊網 / 博客來：需在 Apps Script 部署含 lookupBook() 的新版本
+async function fetchFromTaiwanSources(isbn) {
   if (!CONFIG.APPS_SCRIPT_URL) return null;
   const data = await fetchJson(
     `${CONFIG.APPS_SCRIPT_URL}?action=lookup&isbn=${encodeURIComponent(isbn)}`, 15000);
@@ -82,7 +82,7 @@ async function fetchFromBooksComTw(isbn) {
     authors:   b.authors ?? '',
     publisher: b.publisher ?? '',
     thumbnail: (b.thumbnail ?? '').replace(/^http:/, 'https:'),
-    source:    b.source ?? '博客來',
+    source:    b.source ?? '台灣書目',
   };
 }
 

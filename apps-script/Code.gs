@@ -116,8 +116,8 @@ function doGet(e) {
   }
 }
 
-// ─── 中文書查詢（博客來）──────────────────────────────────────────────────
-// 瀏覽器無法直接跨網域讀博客來，因此由 Apps Script 代為查詢。
+// ─── 中文書查詢（全國新書資訊網 → 博客來）──────────────────────────────────
+// 瀏覽器無法直接跨網域讀這些網站，因此由 Apps Script 代為查詢。
 // 回傳 { book: { title, authors, publisher, thumbnail, source } } 或 { book: null }
 function lookupBook(isbn) {
   isbn = String(isbn || '').replace(/[^0-9Xx]/g, '').toUpperCase();
@@ -128,7 +128,10 @@ function lookupBook(isbn) {
   if (hit) return { book: JSON.parse(hit) };
 
   var book = null;
-  try { book = _lookupBooksComTw(isbn); } catch (err) { Logger.log('books.com.tw: ' + err); }
+  try { book = _lookupNcl(isbn); } catch (err) { Logger.log('ncl: ' + err); }
+  if (!book || !book.title) {
+    try { book = _lookupBooksComTw(isbn); } catch (err) { Logger.log('books.com.tw: ' + err); }
+  }
 
   if (book && book.title) {
     cache.put('isbn:' + isbn, JSON.stringify(book), 21600);  // 6 小時
@@ -145,6 +148,103 @@ var _FETCH_OPTS = {
     'Accept-Language': 'zh-TW,zh;q=0.9',
   },
 };
+
+// 國家圖書館「全國新書資訊網」：查詢會經過多次轉址並依賴 session cookie，
+// 所以手動跟隨轉址並帶上 cookie。結果表格欄位以 td[data-th="書名"] 等標示。
+var NCL_BASE = 'https://isbn.ncl.edu.tw/NEW_ISBNNet/';
+
+function _lookupNcl(isbn) {
+  var html = _fetchWithCookies(NCL_BASE + 'H30_SearchBooks.php?Pact=Search&Pval=' + encodeURIComponent(isbn));
+  if (!html) return null;
+
+  var count = html.match(/找到\s*(\d+)\s*筆/);
+  if (count && +count[1] === 0) return null;
+
+  // 取結果表格中第一筆含「書名」欄位的資料列
+  var tableStart = html.search(/class=["'][^"']*table-searchbooks/);
+  if (tableStart < 0) return null;
+  var rows = html.slice(tableStart).split(/<tr[\s>]/i);
+  var row  = null;
+  for (var i = 0; i < rows.length; i++) {
+    if (/data-th=["']書名["']/.test(rows[i])) { row = rows[i]; break; }
+  }
+  if (!row) return null;
+
+  var title = _cell(row, '書名');
+  if (!title) return null;
+
+  var thumbnail = '';
+  var coverCell = _cellHtml(row, '封面圖');
+  var img = coverCell.match(/<img[^>]+src=["']([^"']+)["']/i);
+  if (img && img[1].indexOf('no_cover') < 0) thumbnail = _absUrl(_decode(img[1]), NCL_BASE);
+
+  return {
+    title:     title,
+    authors:   _cell(row, '作者'),
+    publisher: _cell(row, '出版者'),
+    thumbnail: thumbnail.replace(/^http:/, 'https:'),
+    source:    '全國新書資訊網',
+  };
+}
+
+function _cellHtml(row, label) {
+  var m = row.match(new RegExp('<td[^>]*data-th=["\']' + label + '["\'][^>]*>([\\s\\S]*?)</td>', 'i'));
+  return m ? m[1] : '';
+}
+
+function _cell(row, label) {
+  var h = _cellHtml(row, label);
+  var a = h.match(/<a[^>]*>([\s\S]*?)<\/a>/i);  // 書名通常包在連結裡
+  var text = (a ? a[1] : h).replace(/<[^>]+>/g, ' ');
+  return _decode(text).replace(/\s+/g, ' ').trim();
+}
+
+// 手動跟隨轉址（最多 5 次），每一步都帶上累積的 cookie
+function _fetchWithCookies(url) {
+  var cookies = {};
+  for (var hop = 0; hop < 5; hop++) {
+    var header = Object.keys(cookies).map(function(k) { return k + '=' + cookies[k]; }).join('; ');
+    var opts = {
+      muteHttpExceptions: true,
+      followRedirects: false,
+      headers: {
+        'User-Agent':      _FETCH_OPTS.headers['User-Agent'],
+        'Accept-Language': 'zh-TW,zh;q=0.9',
+      },
+    };
+    if (header) opts.headers.Cookie = header;
+
+    var resp = UrlFetchApp.fetch(url, opts);
+    var all  = resp.getAllHeaders();
+    var set  = all['Set-Cookie'] || all['set-cookie'];
+    if (set) {
+      (Array.isArray(set) ? set : [set]).forEach(function(c) {
+        var kv = String(c).split(';')[0];
+        var eq = kv.indexOf('=');
+        if (eq > 0) cookies[kv.slice(0, eq).trim()] = kv.slice(eq + 1).trim();
+      });
+    }
+
+    var code = resp.getResponseCode();
+    if (code === 200) return resp.getContentText('UTF-8');
+    if (code >= 300 && code < 400) {
+      var loc = all['Location'] || all['location'];
+      if (!loc) return null;
+      url = _absUrl(Array.isArray(loc) ? loc[0] : loc, url);
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+function _absUrl(href, base) {
+  if (/^https?:\/\//i.test(href)) return href;
+  if (href.indexOf('//') === 0) return 'https:' + href;
+  var origin = base.match(/^https?:\/\/[^\/]+/)[0];
+  if (href.charAt(0) === '/') return origin + href;
+  return base.replace(/[?#].*$/, '').replace(/[^\/]*$/, '') + href;
+}
 
 function _lookupBooksComTw(isbn) {
   var search = UrlFetchApp.fetch(
