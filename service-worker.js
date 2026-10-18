@@ -1,5 +1,5 @@
 // Service Worker — PWA offline support (Stage 15–16)
-const CACHE = 'reading-tracker-v2';
+const CACHE = 'reading-tracker-v3';
 const STATIC = [
   './',
   './index.html',
@@ -10,6 +10,7 @@ const STATIC = [
   './js/isbn.js',
   './js/api.js',
   './js/scanner.js',
+  './js/vendor/html5-qrcode.min.js',
   './js/app.js',
   './js/history.js',
   './js/dashboard.js',

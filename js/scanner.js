@@ -10,7 +10,12 @@ async function startScanner(onDetected, onError) {
 
   if (typeof Html5Qrcode === 'undefined') {
     container.classList.add('hidden');
-    onError(new Error('Scanner library not available — check network'));
+    onError(new Error('SCANNER_LIB_MISSING'));
+    return;
+  }
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    container.classList.add('hidden');
+    onError(new Error('CAMERA_UNSUPPORTED'));
     return;
   }
 
@@ -39,6 +44,17 @@ async function startScanner(onDetected, onError) {
     container.classList.add('hidden');
     onError(err);
   }
+}
+
+// 把相機錯誤轉成看得懂的中文說明
+function describeScannerError(err) {
+  const msg = String(err?.name || '') + ' ' + String(err?.message || err || '');
+  if (/SCANNER_LIB_MISSING/.test(msg))       return '掃描元件沒有載入，請重新整理頁面。';
+  if (/CAMERA_UNSUPPORTED/.test(msg))        return '這個瀏覽器不支援相機（需使用 https 網址開啟）。';
+  if (/NotAllowed|Permission/i.test(msg))    return '相機權限被拒絕。請到「設定 → Safari → 相機」改成「允許」，或在網址列左側的「ㄚA」選單中允許相機，再重新整理。';
+  if (/NotFound|Overconstrained/i.test(msg)) return '找不到可用的相機。';
+  if (/NotReadable|TrackStart|in use/i.test(msg)) return '相機正被其他 App 使用中，請關閉其他使用相機的 App 後再試。';
+  return `無法開啟相機（${msg.trim() || '未知錯誤'}）。`;
 }
 
 async function stopScanner() {
