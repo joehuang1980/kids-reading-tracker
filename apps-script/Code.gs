@@ -18,6 +18,10 @@
  *     （需允許「連線至外部服務」，中文書查詢才能連到國圖與博客來；
  *       未授權時 debug=1 會顯示「沒有呼叫 UrlFetchApp.fetch 的權限」）
  *
+ *  7.（選用）Google Books API 金鑰：「專案設定」→「指令碼屬性」新增
+ *     屬性 GOOGLE_BOOKS_API_KEY，值填金鑰。金鑰只存在這裡，不要寫進 js/config.js
+ *     （網站程式是公開的，任何人都能看到並盜用額度）。
+ *
  *  ※ 更新程式碼後須「部署」→「管理部署作業」→ 編輯 → 版本選「新版本」，
  *    前端才會用到新功能（例如中文書查詢 action=lookup）。
  *
@@ -141,6 +145,9 @@ function lookupBook(isbn, debug) {
   var book = null;
   try { book = _lookupNcl(isbn); } catch (err) { _note('ncl error: ' + err); }
   if (!book || !book.title) {
+    try { book = _lookupGoogleBooks(isbn); } catch (err) { _note('google books error: ' + err); }
+  }
+  if (!book || !book.title) {
     try { book = _lookupBooksComTw(isbn); } catch (err) { _note('books.com.tw error: ' + err); }
   }
 
@@ -168,7 +175,7 @@ function _fetch(url, opts) {
     try { text = resp.getContentText('UTF-8'); } catch (e) {}
     var h = resp.getAllHeaders();
     _trace.push({
-      url:      url,
+      url:      url.replace(/([?&]key=)[^&]+/, '$1***'),  // 不在診斷結果洩漏金鑰
       code:     resp.getResponseCode(),
       bytes:    text.length,
       location: h['Location'] || h['location'] || undefined,
@@ -187,6 +194,29 @@ var _FETCH_OPTS = {
     'Accept-Language': 'zh-TW,zh;q=0.9',
   },
 };
+
+// Google Books（帶金鑰）：前端不帶金鑰的查詢額度用完時的備援。
+// 金鑰存在指令碼屬性 GOOGLE_BOOKS_API_KEY；沒設定就略過。
+function _lookupGoogleBooks(isbn) {
+  var key = PropertiesService.getScriptProperties().getProperty('GOOGLE_BOOKS_API_KEY');
+  if (!key) { _note('google books: 未設定 GOOGLE_BOOKS_API_KEY，略過'); return null; }
+
+  var resp = _fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn +
+                    '&key=' + encodeURIComponent(key), { muteHttpExceptions: true });
+  if (resp.getResponseCode() !== 200) return null;
+  var item = (JSON.parse(resp.getContentText()).items || [])[0];
+  var info = item && item.volumeInfo;
+  if (!info || !info.title) return null;
+
+  var links = info.imageLinks || {};
+  return {
+    title:     String(info.title).trim(),
+    authors:   (info.authors || []).join('、'),
+    publisher: info.publisher || '',
+    thumbnail: (links.thumbnail || links.smallThumbnail || '').replace(/^http:/, 'https:'),
+    source:    'Google Books',
+  };
+}
 
 // 國家圖書館「全國新書資訊網」：查詢會經過多次轉址並依賴 session cookie，
 // 所以手動跟隨轉址並帶上 cookie。結果表格欄位以 td[data-th="書名"] 等標示。
