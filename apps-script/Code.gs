@@ -88,7 +88,7 @@ function doPost(e) {
 // Stage 11–12: Return all records for history / dashboard pages
 function doGet(e) {
   var params = (e && e.parameter) || {};
-  if (params.action === 'lookup') return _json(lookupBook(params.isbn));
+  if (params.action === 'lookup') return _json(lookupBook(params.isbn, params.debug === '1'));
   try {
     var sheet = getSheet();
     var lr    = sheet.getLastRow();
@@ -119,25 +119,59 @@ function doGet(e) {
 // ─── 中文書查詢（全國新書資訊網 → 博客來）──────────────────────────────────
 // 瀏覽器無法直接跨網域讀這些網站，因此由 Apps Script 代為查詢。
 // 回傳 { book: { title, authors, publisher, thumbnail, source } } 或 { book: null }
-function lookupBook(isbn) {
+// 診斷：在瀏覽器開啟 <Web App URL>?action=lookup&isbn=978...&debug=1
+//       會略過快取，並在 trace 中列出每個網址的回應狀態與內容片段。
+var LOOKUP_VERSION = 3;
+var _trace = null;
+
+function lookupBook(isbn, debug) {
   isbn = String(isbn || '').replace(/[^0-9Xx]/g, '').toUpperCase();
   if (!/^(\d{13}|\d{9}[0-9X])$/.test(isbn)) return { book: null, message: 'invalid isbn' };
 
+  _trace = debug ? [] : null;
   var cache = CacheService.getScriptCache();
-  var hit   = cache.get('isbn:' + isbn);
-  if (hit) return { book: JSON.parse(hit) };
+  var hit   = debug ? null : cache.get('isbn:' + isbn);
+  if (hit) return { book: JSON.parse(hit), v: LOOKUP_VERSION };
 
   var book = null;
-  try { book = _lookupNcl(isbn); } catch (err) { Logger.log('ncl: ' + err); }
+  try { book = _lookupNcl(isbn); } catch (err) { _note('ncl error: ' + err); }
   if (!book || !book.title) {
-    try { book = _lookupBooksComTw(isbn); } catch (err) { Logger.log('books.com.tw: ' + err); }
+    try { book = _lookupBooksComTw(isbn); } catch (err) { _note('books.com.tw error: ' + err); }
   }
 
-  if (book && book.title) {
-    cache.put('isbn:' + isbn, JSON.stringify(book), 21600);  // 6 小時
-    return { book: book };
+  var out = { book: (book && book.title) ? book : null, v: LOOKUP_VERSION };
+  if (out.book) cache.put('isbn:' + isbn, JSON.stringify(book), 21600);  // 6 小時
+  if (_trace) out.trace = _trace;
+  return out;
+}
+
+// 在 Apps Script 編輯器中選此函式按「執行」，可於執行記錄看到診斷結果
+function testLookup() {
+  Logger.log(JSON.stringify(lookupBook('9786264179645', true), null, 2));
+}
+
+function _note(msg) {
+  Logger.log(msg);
+  if (_trace) _trace.push(msg);
+}
+
+// UrlFetchApp.fetch 包裝：診斷模式下記錄每次請求
+function _fetch(url, opts) {
+  var resp = UrlFetchApp.fetch(url, opts);
+  if (_trace) {
+    var text = '';
+    try { text = resp.getContentText('UTF-8'); } catch (e) {}
+    var h = resp.getAllHeaders();
+    _trace.push({
+      url:      url,
+      code:     resp.getResponseCode(),
+      bytes:    text.length,
+      location: h['Location'] || h['location'] || undefined,
+      snippet:  text.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ')
+                    .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400),
+    });
   }
-  return { book: null };
+  return resp;
 }
 
 var _FETCH_OPTS = {
@@ -158,17 +192,17 @@ function _lookupNcl(isbn) {
   if (!html) return null;
 
   var count = html.match(/找到\s*(\d+)\s*筆/);
-  if (count && +count[1] === 0) return null;
+  if (count && +count[1] === 0) { _note('ncl: 找到 0 筆'); return null; }
 
   // 取結果表格中第一筆含「書名」欄位的資料列
   var tableStart = html.search(/class=["'][^"']*table-searchbooks/);
-  if (tableStart < 0) return null;
+  if (tableStart < 0) { _note('ncl: 找不到結果表格 table-searchbooks'); return null; }
   var rows = html.slice(tableStart).split(/<tr[\s>]/i);
   var row  = null;
   for (var i = 0; i < rows.length; i++) {
     if (/data-th=["']書名["']/.test(rows[i])) { row = rows[i]; break; }
   }
-  if (!row) return null;
+  if (!row) { _note('ncl: 表格中沒有「書名」欄位'); return null; }
 
   var title = _cell(row, '書名');
   if (!title) return null;
@@ -214,7 +248,7 @@ function _fetchWithCookies(url) {
     };
     if (header) opts.headers.Cookie = header;
 
-    var resp = UrlFetchApp.fetch(url, opts);
+    var resp = _fetch(url, opts);
     var all  = resp.getAllHeaders();
     var set  = all['Set-Cookie'] || all['set-cookie'];
     if (set) {
@@ -247,16 +281,16 @@ function _absUrl(href, base) {
 }
 
 function _lookupBooksComTw(isbn) {
-  var search = UrlFetchApp.fetch(
+  var search = _fetch(
     'https://search.books.com.tw/search/query/key/' + isbn + '/cat/all', _FETCH_OPTS);
   if (search.getResponseCode() !== 200) return null;
   var html = search.getContentText('UTF-8');
 
   var m = html.match(/books\.com\.tw\/products\/([0-9A-Z]{10})/);
-  if (!m) return null;
+  if (!m) { _note('books.com.tw: 搜尋結果沒有商品'); return null; }
   var productId = m[1];
 
-  var page = UrlFetchApp.fetch('https://www.books.com.tw/products/' + productId, _FETCH_OPTS);
+  var page = _fetch('https://www.books.com.tw/products/' + productId, _FETCH_OPTS);
   if (page.getResponseCode() !== 200) return null;
   var p = page.getContentText('UTF-8');
 
