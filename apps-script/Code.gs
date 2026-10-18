@@ -12,7 +12,9 @@
  *     - 以以下身分執行：「我」
  *     - 誰可以存取：「所有人」
  *  4. 複製 Web App URL，填入 js/config.js 的 APPS_SCRIPT_URL
- *  5. 在編輯器上方選擇函式「testLookup」並按「執行」，依提示授權
+ *  5. 「專案設定」勾選「在編輯器中顯示 appsscript.json」，
+ *     內容換成本資料夾的 appsscript.json（明確列出需要的權限）
+ *  6. 在編輯器上方選擇函式「testLookup」並按「執行」，依提示授權
  *     （需允許「連線至外部服務」，中文書查詢才能連到國圖與博客來；
  *       未授權時 debug=1 會顯示「沒有呼叫 UrlFetchApp.fetch 的權限」）
  *
