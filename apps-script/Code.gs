@@ -282,7 +282,11 @@ function _absUrl(href, base) {
   if (href.indexOf('//') === 0) return 'https:' + href;
   var origin = base.match(/^https?:\/\/[^\/]+/)[0];
   if (href.charAt(0) === '/') return origin + href;
-  return base.replace(/[?#].*$/, '').replace(/[^\/]*$/, '') + href;
+  var path = base.replace(/[?#].*$/, '');
+  // 只有查詢參數（例如「?&Pact=…」）時，沿用原本的檔名，只換掉 ? 之後的部分
+  if (href.charAt(0) === '?') return path + href;
+  if (href.charAt(0) === '#') return base.replace(/#.*$/, '') + href;
+  return path.replace(/[^\/]*$/, '') + href.replace(/^\.\//, '');
 }
 
 function _lookupBooksComTw(isbn) {
