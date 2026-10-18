@@ -1,5 +1,5 @@
 // Service Worker — PWA offline support (Stage 15–16)
-const CACHE = 'reading-tracker-v1';
+const CACHE = 'reading-tracker-v2';
 const STATIC = [
   './',
   './index.html',
@@ -35,7 +35,9 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
   // Never intercept API calls — let them fail naturally for offline detection
-  if (url.hostname.includes('googleapis.com') || url.hostname.includes('script.google.com')) {
+  if (url.hostname.includes('googleapis.com') ||
+      url.hostname.includes('script.google.com') ||
+      url.hostname.includes('openlibrary.org')) {
     return;
   }
 

@@ -96,7 +96,7 @@ async function lookupBook() {
         $('coverPh').classList.add('hidden');
       }
       $('result').classList.remove('hidden');
-      showStatus('已找到書籍資料。', 'success');
+      showStatus(`已找到書籍資料（來源：${book.source ?? '—'}）。`, 'success');
     } else {
       showStatus('查不到這本書，請手動輸入書名。', 'error');
       $('manualBox').classList.remove('hidden');

@@ -13,6 +13,9 @@
  *     - 誰可以存取：「所有人」
  *  4. 複製 Web App URL，填入 js/config.js 的 APPS_SCRIPT_URL
  *
+ *  ※ 更新程式碼後須「部署」→「管理部署作業」→ 編輯 → 版本選「新版本」，
+ *    前端才會用到新功能（例如中文書查詢 action=lookup）。
+ *
  * Stage 10: Excel 匯出 — 在 Google Sheet 選「檔案」→「下載」→「Microsoft Excel (.xlsx)」
  */
 
@@ -84,6 +87,8 @@ function doPost(e) {
 
 // Stage 11–12: Return all records for history / dashboard pages
 function doGet(e) {
+  var params = (e && e.parameter) || {};
+  if (params.action === 'lookup') return _json(lookupBook(params.isbn));
   try {
     var sheet = getSheet();
     var lr    = sheet.getLastRow();
@@ -109,6 +114,101 @@ function doGet(e) {
   } catch (err) {
     return _json({ success: false, message: String(err) });
   }
+}
+
+// ─── 中文書查詢（博客來）──────────────────────────────────────────────────
+// 瀏覽器無法直接跨網域讀博客來，因此由 Apps Script 代為查詢。
+// 回傳 { book: { title, authors, publisher, thumbnail, source } } 或 { book: null }
+function lookupBook(isbn) {
+  isbn = String(isbn || '').replace(/[^0-9Xx]/g, '').toUpperCase();
+  if (!/^(\d{13}|\d{9}[0-9X])$/.test(isbn)) return { book: null, message: 'invalid isbn' };
+
+  var cache = CacheService.getScriptCache();
+  var hit   = cache.get('isbn:' + isbn);
+  if (hit) return { book: JSON.parse(hit) };
+
+  var book = null;
+  try { book = _lookupBooksComTw(isbn); } catch (err) { Logger.log('books.com.tw: ' + err); }
+
+  if (book && book.title) {
+    cache.put('isbn:' + isbn, JSON.stringify(book), 21600);  // 6 小時
+    return { book: book };
+  }
+  return { book: null };
+}
+
+var _FETCH_OPTS = {
+  muteHttpExceptions: true,
+  followRedirects: true,
+  headers: {
+    'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    'Accept-Language': 'zh-TW,zh;q=0.9',
+  },
+};
+
+function _lookupBooksComTw(isbn) {
+  var search = UrlFetchApp.fetch(
+    'https://search.books.com.tw/search/query/key/' + isbn + '/cat/all', _FETCH_OPTS);
+  if (search.getResponseCode() !== 200) return null;
+  var html = search.getContentText('UTF-8');
+
+  var m = html.match(/books\.com\.tw\/products\/([0-9A-Z]{10})/);
+  if (!m) return null;
+  var productId = m[1];
+
+  var page = UrlFetchApp.fetch('https://www.books.com.tw/products/' + productId, _FETCH_OPTS);
+  if (page.getResponseCode() !== 200) return null;
+  var p = page.getContentText('UTF-8');
+
+  var title = _meta(p, 'og:title') || _tag(p, 'h1');
+  title = title.replace(/\s*[-|｜]\s*博客來.*$/, '').trim();
+  if (!title) return null;
+
+  // description 格式例如：「書名：XXX，語言：繁體中文，ISBN：…，出版社：YYY，作者：ZZZ，…」
+  var desc      = _meta(p, 'description');
+  var authors   = _field(desc, '作者') || _authorLink(p);
+  var publisher = _field(desc, '出版社');
+  var thumbnail = _meta(p, 'og:image').replace(/^http:/, 'https:');
+
+  return {
+    title:     title,
+    authors:   authors,
+    publisher: publisher,
+    thumbnail: thumbnail,
+    source:    '博客來',
+  };
+}
+
+function _meta(html, name) {
+  var re = new RegExp('<meta[^>]+(?:property|name)=["\']' + name + '["\'][^>]*content=["\']([^"\']*)', 'i');
+  var m  = html.match(re);
+  if (!m) {
+    re = new RegExp('<meta[^>]+content=["\']([^"\']*)["\'][^>]*(?:property|name)=["\']' + name + '["\']', 'i');
+    m  = html.match(re);
+  }
+  return m ? _decode(m[1]).trim() : '';
+}
+
+function _tag(html, tag) {
+  var m = html.match(new RegExp('<' + tag + '[^>]*>([\\s\\S]*?)</' + tag + '>', 'i'));
+  return m ? _decode(m[1].replace(/<[^>]+>/g, '')).trim() : '';
+}
+
+function _field(desc, label) {
+  var m = desc.match(new RegExp(label + '[：:]\\s*([^，,]+)'));
+  return m ? m[1].trim() : '';
+}
+
+function _authorLink(html) {
+  var m = html.match(/作者[：:][\s\S]{0,200}?<a[^>]*>([^<]+)<\/a>/);
+  return m ? _decode(m[1]).trim() : '';
+}
+
+function _decode(s) {
+  return String(s)
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, function(_, n) { return String.fromCharCode(+n); });
 }
 
 // One-time helper: run manually in Apps Script editor to clear all data rows
