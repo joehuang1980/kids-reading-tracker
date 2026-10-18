@@ -201,7 +201,7 @@ function _lookupGoogleBooks(isbn) {
   var key = PropertiesService.getScriptProperties().getProperty('GOOGLE_BOOKS_API_KEY');
   if (!key) { _note('google books: 未設定 GOOGLE_BOOKS_API_KEY，略過'); return null; }
 
-  var resp = _fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn +
+  var resp = _fetch('https://www.googleapis.com/books/v1/volumes?q=isbn:' + isbn + '&country=TW' +
                     '&key=' + encodeURIComponent(key), { muteHttpExceptions: true });
   if (resp.getResponseCode() !== 200) return null;
   var item = (JSON.parse(resp.getContentText()).items || [])[0];
