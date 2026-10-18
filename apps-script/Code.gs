@@ -209,7 +209,8 @@ function _lookupNcl(isbn) {
   }
   if (!row) { _note('ncl: 表格中沒有「書名」欄位'); return null; }
 
-  var title = _cell(row, '書名');
+  // 國圖書名會在「=」後附上原文書名（例如「原始智慧: …= Primal intelligence: …」），只保留中文部分
+  var title = _cell(row, '書名').replace(/\s*=\s*[^=]*$/, '').trim();
   if (!title) return null;
 
   var thumbnail = '';
