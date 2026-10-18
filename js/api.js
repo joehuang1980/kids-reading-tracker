@@ -35,11 +35,16 @@ async function fetchJson(url, timeoutMs = 8000) {
 }
 
 async function fetchFromGoogleBooks(isbn) {
-  const key = CONFIG.GOOGLE_BOOKS_API_KEY
-    ? `&key=${encodeURIComponent(CONFIG.GOOGLE_BOOKS_API_KEY)}`
-    : '';
-  const data = await fetchJson(
-    `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}${key}`);
+  const base = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}`;
+  let data;
+  try {
+    data = await fetchJson(CONFIG.GOOGLE_BOOKS_API_KEY
+      ? `${base}&key=${encodeURIComponent(CONFIG.GOOGLE_BOOKS_API_KEY)}` : base);
+  } catch (err) {
+    // 金鑰額度用完（429）或金鑰被拒（403）時，改用不帶金鑰的方式再查一次
+    if (!CONFIG.GOOGLE_BOOKS_API_KEY || !/HTTP (429|403)/.test(err.message)) throw err;
+    data = await fetchJson(base);
+  }
   const info = data.items?.[0]?.volumeInfo;
   if (!info) return null;
 

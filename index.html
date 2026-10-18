@@ -30,7 +30,7 @@
       <!-- Stage 4: Scanner container -->
       <div id="scanner-container" class="hidden">
         <div id="reader"></div>
-        <div class="scanner-hint">對準書背條碼，保持 10–30 cm</div>
+        <div class="scanner-hint">把書背的 ISBN 條碼放進框內，距離約 15–25 cm</div>
       </div>
 
       <button id="lookupBtn" type="button" class="mt-4">查詢書籍</button>
@@ -85,8 +85,8 @@
     <a href="dashboard.html" class="nav-item"><span class="nav-icon">📊</span>統計</a>
   </nav>
 
-  <!-- Stage 4: html5-qrcode for barcode scanning -->
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- Stage 4: barcode scanning -->
+  <script src="js/vendor/zxing-reader.js"></script>  <!-- zxing-wasm 3.1.4（reader），放在專案內，不依賴外部 CDN -->
   <script src="js/config.js"></script>
   <script src="js/isbn.js"></script>
   <script src="js/api.js"></script>

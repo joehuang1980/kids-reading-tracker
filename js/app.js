@@ -195,8 +195,8 @@ async function handleScan() {
     (err) => {
       _scanning = false;
       $('scanBtn').textContent = '📷';
-      console.warn('Scanner error:', err.message);
-      showStatus('無法開啟相機，請手動輸入 ISBN。', 'error');
+      console.warn('Scanner error:', err);
+      showStatus(`${describeScannerError(err)}也可以手動輸入 ISBN。`, 'error');
       $('manualBox').classList.remove('hidden');
       $('formBox').classList.remove('hidden');
     },
