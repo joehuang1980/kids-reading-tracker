@@ -4,7 +4,7 @@
 // 依序查詢多個來源，中文書在 Google Books 常查不到，因此加上：
 //   1. Google Books
 //   2. Open Library（部分中文書）
-//   3. 國家圖書館全國新書資訊網 → 博客來（透過 Apps Script 代查，避開瀏覽器跨網域限制）
+//   3. Apps Script 代查：全國新書資訊網 → Google Books（帶金鑰）→ 博客來
 // 任一來源找到書名就回傳；全部失敗且都是網路錯誤時拋出錯誤，讓畫面顯示「無法連線」。
 async function fetchBookByIsbn(isbn) {
   const sources = [fetchFromGoogleBooks, fetchFromOpenLibrary, fetchFromTaiwanSources];
@@ -34,17 +34,10 @@ async function fetchJson(url, timeoutMs = 8000) {
   }
 }
 
+// 不帶金鑰：額度依使用者的網路位置計算，家用足夠；金鑰不放在公開的前端程式
 async function fetchFromGoogleBooks(isbn) {
-  const base = `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}`;
-  let data;
-  try {
-    data = await fetchJson(CONFIG.GOOGLE_BOOKS_API_KEY
-      ? `${base}&key=${encodeURIComponent(CONFIG.GOOGLE_BOOKS_API_KEY)}` : base);
-  } catch (err) {
-    // 金鑰額度用完（429）或金鑰被拒（403）時，改用不帶金鑰的方式再查一次
-    if (!CONFIG.GOOGLE_BOOKS_API_KEY || !/HTTP (429|403)/.test(err.message)) throw err;
-    data = await fetchJson(base);
-  }
+  const data = await fetchJson(
+    `https://www.googleapis.com/books/v1/volumes?q=isbn:${encodeURIComponent(isbn)}`);
   const info = data.items?.[0]?.volumeInfo;
   if (!info) return null;
 
@@ -74,7 +67,7 @@ async function fetchFromOpenLibrary(isbn) {
   };
 }
 
-// 全國新書資訊網 / 博客來：需在 Apps Script 部署含 lookupBook() 的新版本
+// 全國新書資訊網 / Google Books（帶金鑰）/ 博客來：需在 Apps Script 部署含 lookupBook() 的新版本
 async function fetchFromTaiwanSources(isbn) {
   if (!CONFIG.APPS_SCRIPT_URL) return null;
   const data = await fetchJson(
