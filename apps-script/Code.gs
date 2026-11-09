@@ -256,6 +256,7 @@ function _arSearch(base, isbn) {
 
   // 1. 選擇使用者身分（第一次進站時網站會要求）
   var html = s.get(base + 'usertype.aspx');
+  _traceInputs('usertype', html);
   if (html && /type=["']?radio/i.test(html)) {
     var utForm = _aspForm(html);
     var radio  = _pickRadio(html, [/parent/i, /student/i]);
@@ -268,6 +269,7 @@ function _arSearch(base, isbn) {
   if (!html || html.indexOf('txtKeyWords') < 0) html = s.get(base + 'default.aspx');
   if (!html || html.indexOf('txtKeyWords') < 0) { _note('ar: 找不到搜尋框（txtKeyWords）'); return null; }
 
+  _traceInputs('search', html);
   var form = _aspForm(html);
   var kw   = _inputById(html, 'txtKeyWords');
   form.fields[kw ? kw.name : 'ctl00$ContentPlaceHolder1$txtKeyWords'] = isbn;
@@ -303,6 +305,30 @@ function _arTitle(html) {
   if (i < 0) return '';
   var m = html.slice(i).match(/<strong[^>]*>([\s\S]*?)<\/strong>/i);
   return m ? _decode(m[1].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim() : '';
+}
+
+// ─── 診斷用：列出頁面上的表單欄位、送出的欄位（長字串只顯示長度）───
+function _summarizeFields(fields) {
+  var out = {};
+  Object.keys(fields).forEach(function(k) {
+    var v = String(fields[k]);
+    out[k] = v.length > 40 ? '(' + v.length + ' chars)' : v;
+  });
+  return out;
+}
+
+function _traceInputs(label, html) {
+  if (!_trace || !html) return;
+  var forms = (html.match(/<form\b[^>]*>/gi) || []).map(function(t) {
+    return { id: _attr(t, 'id'), action: _attr(t, 'action') };
+  });
+  var tags = (html.match(/<(input|select|button)\b[^>]*>/gi) || []).map(function(t) {
+    var v = _attr(t, 'value') || '';
+    return [(t.match(/^<(\w+)/) || [])[1], _attr(t, 'type'), _attr(t, 'name'), _attr(t, 'id'),
+            v.length > 30 ? '(' + v.length + ' chars)' : v].join(' | ');
+  });
+  var postbacks = (html.match(/__doPostBack\([^)]*\)/g) || []).slice(0, 10);
+  _trace.push({ page: label, forms: forms, inputs: tags, postbacks: postbacks });
 }
 
 // ─── ASP.NET 表單小工具 ───
@@ -350,10 +376,12 @@ function _addSubmit(html, fields, idPart) {
   var btn = idPart ? _inputById(html, idPart) : null;
   if (!btn) {
     var subs = _inputs(html, 'submit').concat(_inputs(html, 'image'));
-    btn = subs[0] || null;
+    // 優先選名稱或文字像「送出」的按鈕，避免按到語言切換等其他按鈕
+    btn = subs.filter(function(x) { return /submit|continue|go\b|ok\b/i.test(x.name + ' ' + x.id + ' ' + x.value); })[0]
+       || subs[0] || null;
   }
   if (btn && btn.name) { fields[btn.name] = btn.value || 'Submit'; return; }
-  var pb = html.match(/__doPostBack\(\s*['"]([^'"]+)['"]/);
+  var pb = _decode(html).match(/__doPostBack\(\s*['"]([^'"]+)['"]/);
   if (pb) { fields.__EVENTTARGET = pb[1]; fields.__EVENTARGUMENT = ''; }
 }
 
@@ -471,6 +499,7 @@ function _session(acceptLanguage) {
       };
       if (header) opts.headers.Cookie = header;
       if (payload) opts.payload = payload;   // 物件會以 application/x-www-form-urlencoded 送出
+      if (payload && _trace) _trace.push({ postFields: _summarizeFields(payload) });
 
       var resp = _fetch(url, opts);
       var all  = resp.getAllHeaders();
