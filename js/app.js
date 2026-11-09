@@ -36,7 +36,9 @@ function _badgeUpdate() {
 window.addEventListener('online', _qFlush);
 
 // ─── State ─────────────────────────────────────────────────────────────────
-let _book     = null;  // { title, authors, publisher, thumbnail }
+let _book     = null;  // { title, authors, publisher, thumbnail, language, source }
+let _cover    = null;  // 自行拍攝的書封（JPEG data URL）
+let _ar       = null;  // 英文書 AR 字數查詢：{ isbn, promise, result }
 let _scanning = false;
 
 // ─── UI helpers ────────────────────────────────────────────────────────────
@@ -58,10 +60,109 @@ function resetBookResult() {
   $('bookTitle').textContent = '';
   $('bookMeta').textContent  = '';
   const img = $('bookCover');
-  img.src = '';
+  img.onerror = null;               // 清空圖片也會觸發 error，先取消處理
+  img.removeAttribute('src');
   img.classList.add('hidden');
   $('coverPh').classList.remove('hidden');
   $('manualTitle').value = '';
+
+  _cover = null;
+  _ar    = null;
+  $('coverCaptureBox').classList.add('hidden');
+  $('coverPreview').src = '';
+  $('coverPreview').classList.add('hidden');
+  $('coverBtn').textContent = '📷 拍攝書封';
+  $('coverHint').textContent = '查不到封面，可以自己拍一張書封留作紀錄。';
+  $('coverInput').value = '';
+  $('arBox').classList.add('hidden');
+  $('arBox').textContent = '';
+}
+
+// ─── 自拍書封 ──────────────────────────────────────────────────────────────
+function _offerCoverCapture() {
+  $('coverCaptureBox').classList.remove('hidden');
+}
+
+function _showCover(src) {
+  const img = $('bookCover');
+  img.onerror = () => {             // 封面網址失效時，改讓使用者自己拍
+    if (img.getAttribute('src') !== src) return;
+    img.classList.add('hidden');
+    $('coverPh').classList.remove('hidden');
+    if (_book) _book.thumbnail = '';
+    _offerCoverCapture();
+  };
+  img.src = src;
+  img.classList.remove('hidden');
+  $('coverPh').classList.add('hidden');
+}
+
+async function handleCoverFile(e) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  showStatus('正在處理書封照片…');
+  try {
+    _cover = await makeCoverThumbnail(file);
+    if (!$('result').classList.contains('hidden')) {
+      _showCover(_cover);             // 書籍資料區已有封面位置，就顯示在那裡
+    } else {
+      $('coverPreview').src = _cover;
+      $('coverPreview').classList.remove('hidden');
+    }
+    $('coverHint').textContent = '已加入你拍的書封，不滿意可以重拍。';
+    $('coverBtn').textContent = '📷 重拍書封';
+    showStatus('已加入書封照片。', 'success');
+  } catch (err) {
+    console.warn('cover photo error:', err);
+    showStatus('照片處理失敗，請再拍一次。', 'error');
+  } finally {
+    $('coverInput').value = '';
+  }
+}
+
+// ─── 英文書 AR 字數 ────────────────────────────────────────────────────────
+function _startArLookup(isbn) {
+  const box = $('arBox');
+  box.textContent = '📏 正在查詢 AR BookFind 字數…';
+  box.classList.remove('hidden');
+
+  const state = { isbn, result: undefined };
+  state.promise = fetchArInfo(isbn)
+    .catch(err => { console.warn('[AR] lookup failed:', err); return null; })
+    .then(ar => {
+      state.result = ar;
+      if (_ar === state) _renderAr(ar);
+      return ar;
+    });
+  _ar = state;
+}
+
+function _renderAr(ar) {
+  const box = $('arBox');
+  if (!ar) {
+    box.textContent = '📏 AR BookFind 查不到這本書，字數不會記錄。';
+    return;
+  }
+  // 其他來源都查不到書名時，用 AR 的書名
+  if (!_book && ar.title && !$('manualTitle').value.trim()) $('manualTitle').value = ar.title;
+
+  const parts = [];
+  parts.push(ar.wordCount ? `📏 AR 字數：${ar.wordCount.toLocaleString()} 字` : '📏 AR BookFind 沒有這本書的字數');
+  if (ar.atosLevel) parts.push(`ATOS ${ar.atosLevel}`);
+  if (ar.arPoints)  parts.push(`${ar.arPoints} 點`);
+  box.textContent = parts.join('　·　');
+}
+
+// 送出時取得字數：查詢還沒好就最多再等 10 秒
+async function _wordCountFor(isbn) {
+  if (!_ar || _ar.isbn !== isbn) return null;
+  if (_ar.result !== undefined) return _ar.result?.wordCount ?? null;
+  showStatus('正在等待 AR 字數查詢…');
+  const ar = await Promise.race([
+    _ar.promise,
+    new Promise(resolve => setTimeout(() => resolve(null), 10000)),
+  ]);
+  return ar?.wordCount ?? null;
 }
 
 // ─── Book lookup (Stage 3, 13–14) ──────────────────────────────────────────
@@ -89,21 +190,21 @@ async function lookupBook() {
       _book = book;
       $('bookTitle').textContent = book.title;
       $('bookMeta').textContent  = [book.authors, book.publisher].filter(Boolean).join('　·　');
-      if (book.thumbnail) {
-        const img = $('bookCover');
-        img.src = book.thumbnail;
-        img.classList.remove('hidden');
-        $('coverPh').classList.add('hidden');
-      }
+      if (book.thumbnail) _showCover(book.thumbnail);
+      else _offerCoverCapture();
       $('result').classList.remove('hidden');
       showStatus(`已找到書籍資料（來源：${book.source ?? '—'}）。`, 'success');
+      if (isEnglishBook(isbn, book)) _startArLookup(isbn);
     } else {
       showStatus('查不到這本書，請手動輸入書名。', 'error');
       $('manualBox').classList.remove('hidden');
+      _offerCoverCapture();
+      if (isEnglishIsbn(isbn)) _startArLookup(isbn);   // AR 也許有這本書的書名與字數
     }
   } catch {
     showStatus('目前無法連線查詢，請手動輸入書名。', 'error');
     $('manualBox').classList.remove('hidden');
+    _offerCoverCapture();
   } finally {
     $('lookupBtn').disabled = false;
     $('lookupBtn').textContent = '查詢書籍';
@@ -123,6 +224,9 @@ async function handleSubmit() {
   if (!date)   { showStatus('請選擇閱讀日期。', 'error'); return; }
   if (!reader) { showStatus('請選擇閱讀者。', 'error'); return; }
 
+  $('submitBtn').disabled = true;
+  const wordCount = await _wordCountFor(isbn);
+
   const record = {
     isbn,
     title,
@@ -130,12 +234,11 @@ async function handleSubmit() {
     reader,
     authors:   _book?.authors   ?? '',
     publisher: _book?.publisher ?? '',
-    thumbnail: _book?.thumbnail ?? '',
+    thumbnail: _cover || _book?.thumbnail || '',
+    wordCount,
     submittedAt: new Date().toISOString(),
   };
 
-  // Stage 9: Disable button immediately to prevent duplicate submit
-  $('submitBtn').disabled = true;
   showStatus('正在儲存閱讀紀錄…');
 
   try {
@@ -216,6 +319,8 @@ function init() {
   $('isbn').addEventListener('keydown', e => { if (e.key === 'Enter') lookupBook(); });
   $('scanBtn').addEventListener('click', handleScan);
   $('submitBtn').addEventListener('click', handleSubmit);
+  $('coverBtn').addEventListener('click', () => $('coverInput').click());
+  $('coverInput').addEventListener('change', handleCoverFile);
   $('syncBadge').addEventListener('click', _qFlush);
   $('syncBadge').addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _qFlush(); }

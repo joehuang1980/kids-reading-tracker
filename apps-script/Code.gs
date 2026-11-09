@@ -3,7 +3,9 @@
  * Stage 6: 在 Google Sheet 建立名為「Kids Reading Records」的試算表
  *          新增工作表「Reading_Log」，欄位如下：
  *          A: Record_ID  B: ISBN  C: Book_Title  D: Reading_Date
- *          E: Reader     F: Created_At  G: Thumbnail
+ *          E: Reader     F: Created_At  G: Thumbnail  H: Word_Count
+ *          （G 欄可能是網址，或使用者自拍書封的 JPEG data URL；
+ *            H 欄是英文書在 AR BookFind 查到的總字數，舊試算表會自動補上標題）
  *
  * Stage 7: 部署步驟
  *  1. 開啟 https://script.google.com，新增專案
@@ -17,6 +19,7 @@
  *  6. 在編輯器上方選擇函式「testLookup」並按「執行」，依提示授權
  *     （需允許「連線至外部服務」，中文書查詢才能連到國圖與博客來；
  *       未授權時 debug=1 會顯示「沒有呼叫 UrlFetchApp.fetch 的權限」）
+ *     英文書字數查詢可在編輯器執行「testArLookup」測試。
  *
  *  7.（選用）Google Books API 金鑰：「專案設定」→「指令碼屬性」新增
  *     屬性 GOOGLE_BOOKS_API_KEY，值填金鑰。金鑰只存在這裡，不要寫進 js/config.js
@@ -29,14 +32,19 @@
  */
 
 var SHEET_NAME = 'Reading_Log';
+var HEADERS    = ['Record_ID', 'ISBN', 'Book_Title', 'Reading_Date', 'Reader', 'Created_At', 'Thumbnail', 'Word_Count'];
+var NUM_COLS   = HEADERS.length;
+var MAX_CELL_CHARS = 49000;   // Google 試算表單一儲存格上限約 50,000 字元
 
 function getSheet() {
   var ss    = SpreadsheetApp.getActive();
   var sheet = ss.getSheetByName(SHEET_NAME);
   if (!sheet) {
     sheet = ss.insertSheet(SHEET_NAME);
-    sheet.appendRow(['Record_ID', 'ISBN', 'Book_Title', 'Reading_Date', 'Reader', 'Created_At', 'Thumbnail']);
+    sheet.appendRow(HEADERS);
     sheet.setFrozenRows(1);
+  } else if (!sheet.getRange(1, NUM_COLS).getValue()) {
+    sheet.getRange(1, NUM_COLS).setValue(HEADERS[NUM_COLS - 1]);  // 舊試算表補上新欄位標題
   }
   return sheet;
 }
@@ -78,6 +86,10 @@ function doPost(e) {
       Utilities.formatDate(new Date(), 'Asia/Taipei', 'yyyyMMdd') + '-' +
       Math.random().toString(36).substr(2, 4).toUpperCase();
 
+    var thumbnail = String(data.thumbnail || '');
+    if (thumbnail.length > MAX_CELL_CHARS) thumbnail = '';  // 超過儲存格上限就不存封面，避免整筆失敗
+    var wordCount = parseInt(data.wordCount, 10);
+
     sheet.appendRow([
       recordId,
       data.isbn      || '',
@@ -85,7 +97,8 @@ function doPost(e) {
       data.readingDate,
       data.reader,
       new Date(),
-      data.thumbnail || '',
+      thumbnail,
+      wordCount > 0 ? wordCount : '',
     ]);
 
     return _json({ success: true, recordId: recordId });
@@ -98,12 +111,13 @@ function doPost(e) {
 function doGet(e) {
   var params = (e && e.parameter) || {};
   if (params.action === 'lookup') return _json(lookupBook(params.isbn, params.debug === '1'));
+  if (params.action === 'ar')     return _json(lookupArBook(params.isbn, params.debug === '1'));
   try {
     var sheet = getSheet();
     var lr    = sheet.getLastRow();
     if (lr < 2) return _json({ records: [] });
 
-    var rows    = sheet.getRange(2, 1, lr - 1, 7).getValues();
+    var rows    = sheet.getRange(2, 1, lr - 1, NUM_COLS).getValues();
     var records = rows
       .filter(function(r) { return r[2]; })  // skip rows without title
       .map(function(r) {
@@ -116,6 +130,7 @@ function doGet(e) {
           reader:      r[4],
           createdAt:   r[5] instanceof Date ? r[5].toISOString() : String(r[5]),
           thumbnail:   r[6] || '',
+          wordCount:   Number(r[7]) || null,
         };
       });
 
@@ -130,7 +145,7 @@ function doGet(e) {
 // 回傳 { book: { title, authors, publisher, thumbnail, source } } 或 { book: null }
 // 診斷：在瀏覽器開啟 <Web App URL>?action=lookup&isbn=978...&debug=1
 //       會略過快取，並在 trace 中列出每個網址的回應狀態與內容片段。
-var LOOKUP_VERSION = 3;
+var LOOKUP_VERSION = 4;
 var _trace = null;
 
 function lookupBook(isbn, debug) {
@@ -194,6 +209,173 @@ var _FETCH_OPTS = {
     'Accept-Language': 'zh-TW,zh;q=0.9',
   },
 };
+
+// ─── 英文書字數（AR BookFind）─────────────────────────────────────────────
+// 流程：選擇使用者身分（usertype.aspx）→ 首頁快速搜尋 ISBN → 書籍詳細頁讀取字數。
+// 欄位 ID 參考 github.com/anthonator/ar-book-finder（如 lblWordCount、txtKeyWords、btnDoIt）。
+// 回傳 { ar: { wordCount, title, author, atosLevel, arPoints, site } } 或 { ar: null }
+// 診斷：<Web App URL>?action=ar&isbn=978...&debug=1
+var AR_SITES = ['https://www.arbookfind.com/', 'https://www.arbookfind.co.uk/'];
+
+function lookupArBook(isbn, debug) {
+  isbn = String(isbn || '').replace(/[^0-9Xx]/g, '').toUpperCase();
+  if (!/^(\d{13}|\d{9}[0-9X])$/.test(isbn)) return { ar: null, message: 'invalid isbn' };
+
+  _trace = debug ? [] : null;
+  var cache = CacheService.getScriptCache();
+  var hit   = debug ? null : cache.get('ar:' + isbn);
+  if (hit) return { ar: JSON.parse(hit), v: LOOKUP_VERSION };
+
+  // AR 可能只登錄 ISBN-10 或 ISBN-13，兩種都試
+  var queries = [isbn];
+  var alt = isbn.length === 13 ? _isbn13to10(isbn) : _isbn10to13(isbn);
+  if (alt) queries.push(alt);
+
+  var result = null;
+  for (var i = 0; i < AR_SITES.length && !result; i++) {
+    for (var j = 0; j < queries.length && !result; j++) {
+      try { result = _arSearch(AR_SITES[i], queries[j]); }
+      catch (err) { _note('ar ' + AR_SITES[i] + ' error: ' + err); }
+    }
+  }
+
+  // 查到快取 6 小時；查不到快取 1 小時，避免重複打擾網站
+  cache.put('ar:' + isbn, JSON.stringify(result), result ? 21600 : 3600);
+  var out = { ar: result, v: LOOKUP_VERSION };
+  if (_trace) out.trace = _trace;
+  return out;
+}
+
+// 在 Apps Script 編輯器中選此函式按「執行」，可於執行記錄看到診斷結果
+function testArLookup() {
+  Logger.log(JSON.stringify(lookupArBook('9780439708180', true), null, 2));  // Harry Potter and the Sorcerer's Stone
+}
+
+function _arSearch(base, isbn) {
+  var s = _session('en-US,en;q=0.9');
+
+  // 1. 選擇使用者身分（第一次進站時網站會要求）
+  var html = s.get(base + 'usertype.aspx');
+  if (html && /type=["']?radio/i.test(html)) {
+    var utForm = _aspForm(html);
+    var radio  = _pickRadio(html, [/parent/i, /student/i]);
+    if (radio) utForm.fields[radio.name] = radio.value;
+    _addSubmit(html, utForm.fields, null);
+    html = s.post(_absUrl(utForm.action || 'usertype.aspx', s.lastUrl), utForm.fields);
+  }
+
+  // 2. 快速搜尋
+  if (!html || html.indexOf('txtKeyWords') < 0) html = s.get(base + 'default.aspx');
+  if (!html || html.indexOf('txtKeyWords') < 0) { _note('ar: 找不到搜尋框（txtKeyWords）'); return null; }
+
+  var form = _aspForm(html);
+  var kw   = _inputById(html, 'txtKeyWords');
+  form.fields[kw ? kw.name : 'ctl00$ContentPlaceHolder1$txtKeyWords'] = isbn;
+  _addSubmit(html, form.fields, 'btnDoIt');
+  html = s.post(_absUrl(form.action || 'default.aspx', s.lastUrl), form.fields);
+  if (!html) { _note('ar: 搜尋沒有回應'); return null; }
+
+  // 3. 書籍詳細頁（只有一筆結果時，網站可能直接顯示詳細頁）
+  if (!/lblWordCount/.test(html)) {
+    var link = html.match(/href=["']([^"']*bookdetail\.aspx[^"']*)["']/i);
+    if (!link) { _note('ar: ' + isbn + ' 搜尋結果沒有書籍'); return null; }
+    html = s.get(_absUrl(_decode(link[1]), s.lastUrl));
+    if (!html) { _note('ar: 詳細頁沒有回應'); return null; }
+  }
+
+  var wordCount = parseInt(_textById(html, 'lblWordCount').replace(/[^\d]/g, ''), 10) || null;
+  var title     = _arTitle(html);
+  if (!wordCount && !title) { _note('ar: 詳細頁找不到字數與書名'); return null; }
+
+  return {
+    wordCount: wordCount,
+    title:     title,
+    author:    _textById(html, 'lblAuthor').replace(/^by\s+/i, ''),
+    atosLevel: _textById(html, 'lblBookLevel'),
+    arPoints:  _textById(html, 'lblPoints'),
+    site:      base,
+  };
+}
+
+// 書名在 detailTable 內第一個 <strong>
+function _arTitle(html) {
+  var i = html.search(/id=["'][^"']*detailTable["']/i);
+  if (i < 0) return '';
+  var m = html.slice(i).match(/<strong[^>]*>([\s\S]*?)<\/strong>/i);
+  return m ? _decode(m[1].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim() : '';
+}
+
+// ─── ASP.NET 表單小工具 ───
+function _attr(tag, name) {
+  var m = tag.match(new RegExp('\\s' + name + '\\s*=\\s*(?:"([^"]*)"|\'([^\']*)\'|([^\\s>]+))', 'i'));
+  return m ? _decode(m[1] !== undefined ? m[1] : (m[2] !== undefined ? m[2] : m[3])) : null;
+}
+
+function _inputs(html, type) {
+  var tags = html.match(/<input\b[^>]*>/gi) || [];
+  return tags.filter(function(t) { return (_attr(t, 'type') || 'text').toLowerCase() === type; })
+             .map(function(t) { return { name: _attr(t, 'name'), value: _attr(t, 'value') || '', id: _attr(t, 'id') || '', tag: t }; })
+             .filter(function(x) { return x.name; });
+}
+
+// 取得第一個 <form> 的 action 與所有 hidden 欄位（__VIEWSTATE、__EVENTVALIDATION 等）
+function _aspForm(html) {
+  var formTag = (html.match(/<form\b[^>]*>/i) || [''])[0];
+  var fields  = {};
+  _inputs(html, 'hidden').forEach(function(x) { fields[x.name] = x.value; });
+  return { action: formTag ? _attr(formTag, 'action') : '', fields: fields };
+}
+
+function _inputById(html, idPart) {
+  var tags = html.match(/<input\b[^>]*>/gi) || [];
+  for (var i = 0; i < tags.length; i++) {
+    var id = _attr(tags[i], 'id') || '';
+    if (id.indexOf(idPart) >= 0) return { name: _attr(tags[i], 'name'), value: _attr(tags[i], 'value') || '' };
+  }
+  return null;
+}
+
+function _pickRadio(html, prefs) {
+  var radios = _inputs(html, 'radio');
+  for (var i = 0; i < prefs.length; i++) {
+    for (var j = 0; j < radios.length; j++) {
+      if (prefs[i].test(radios[j].id) || prefs[i].test(radios[j].value)) return radios[j];
+    }
+  }
+  return radios[0] || null;
+}
+
+// 加上送出按鈕；沒有 submit 按鈕時改用 __doPostBack 的目標
+function _addSubmit(html, fields, idPart) {
+  var btn = idPart ? _inputById(html, idPart) : null;
+  if (!btn) {
+    var subs = _inputs(html, 'submit').concat(_inputs(html, 'image'));
+    btn = subs[0] || null;
+  }
+  if (btn && btn.name) { fields[btn.name] = btn.value || 'Submit'; return; }
+  var pb = html.match(/__doPostBack\(\s*['"]([^'"]+)['"]/);
+  if (pb) { fields.__EVENTTARGET = pb[1]; fields.__EVENTARGUMENT = ''; }
+}
+
+function _textById(html, idPart) {
+  var m = html.match(new RegExp('<(span|td|div|a)\\b[^>]*id=["\'][^"\']*' + idPart + '["\'][^>]*>([\\s\\S]*?)</\\1>', 'i'));
+  return m ? _decode(m[2].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim() : '';
+}
+
+function _isbn13to10(isbn) {
+  if (!/^978\d{10}$/.test(isbn)) return null;
+  var core = isbn.slice(3, 12), sum = 0;
+  for (var i = 0; i < 9; i++) sum += (10 - i) * +core[i];
+  var c = (11 - sum % 11) % 11;
+  return core + (c === 10 ? 'X' : String(c));
+}
+
+function _isbn10to13(isbn) {
+  if (!/^\d{9}[0-9X]$/.test(isbn)) return null;
+  var core = '978' + isbn.slice(0, 9), sum = 0;
+  for (var i = 0; i < 12; i++) sum += (i % 2 ? 3 : 1) * +core[i];
+  return core + String((10 - sum % 10) % 10);
+}
 
 // Google Books（帶金鑰）：前端不帶金鑰的查詢額度用完時的備援。
 // 金鑰存在指令碼屬性 GOOGLE_BOOKS_API_KEY；沒設定就略過。
@@ -269,43 +451,61 @@ function _cell(row, label) {
   return _decode(text).replace(/\s+/g, ' ').trim();
 }
 
-// 手動跟隨轉址（最多 5 次），每一步都帶上累積的 cookie
-function _fetchWithCookies(url) {
+// 帶 cookie 的連線：手動跟隨轉址（最多 6 次），每一步都帶上累積的 cookie。
+// get(url) / post(url, 欄位物件) 成功回傳 HTML 文字，失敗回傳 null；lastUrl 是最後到達的網址。
+function _session(acceptLanguage) {
   var cookies = {};
-  for (var hop = 0; hop < 5; hop++) {
-    var header = Object.keys(cookies).map(function(k) { return k + '=' + cookies[k]; }).join('; ');
-    var opts = {
-      muteHttpExceptions: true,
-      followRedirects: false,
-      headers: {
-        'User-Agent':      _FETCH_OPTS.headers['User-Agent'],
-        'Accept-Language': 'zh-TW,zh;q=0.9',
-      },
-    };
-    if (header) opts.headers.Cookie = header;
+  var s = { lastUrl: '' };
 
-    var resp = _fetch(url, opts);
-    var all  = resp.getAllHeaders();
-    var set  = all['Set-Cookie'] || all['set-cookie'];
-    if (set) {
-      (Array.isArray(set) ? set : [set]).forEach(function(c) {
-        var kv = String(c).split(';')[0];
-        var eq = kv.indexOf('=');
-        if (eq > 0) cookies[kv.slice(0, eq).trim()] = kv.slice(eq + 1).trim();
-      });
-    }
+  function request(url, method, payload) {
+    for (var hop = 0; hop < 6; hop++) {
+      var header = Object.keys(cookies).map(function(k) { return k + '=' + cookies[k]; }).join('; ');
+      var opts = {
+        method: method,
+        muteHttpExceptions: true,
+        followRedirects: false,
+        headers: {
+          'User-Agent':      _FETCH_OPTS.headers['User-Agent'],
+          'Accept-Language': acceptLanguage || 'zh-TW,zh;q=0.9',
+        },
+      };
+      if (header) opts.headers.Cookie = header;
+      if (payload) opts.payload = payload;   // 物件會以 application/x-www-form-urlencoded 送出
 
-    var code = resp.getResponseCode();
-    if (code === 200) return resp.getContentText('UTF-8');
-    if (code >= 300 && code < 400) {
-      var loc = all['Location'] || all['location'];
-      if (!loc) return null;
-      url = _absUrl(Array.isArray(loc) ? loc[0] : loc, url);
-      continue;
+      var resp = _fetch(url, opts);
+      var all  = resp.getAllHeaders();
+      var set  = all['Set-Cookie'] || all['set-cookie'];
+      if (set) {
+        (Array.isArray(set) ? set : [set]).forEach(function(c) {
+          var kv = String(c).split(';')[0];
+          var eq = kv.indexOf('=');
+          if (eq > 0) cookies[kv.slice(0, eq).trim()] = kv.slice(eq + 1).trim();
+        });
+      }
+
+      s.lastUrl = url;
+      var code = resp.getResponseCode();
+      if (code === 200) return resp.getContentText('UTF-8');
+      if (code >= 300 && code < 400) {
+        var loc = all['Location'] || all['location'];
+        if (!loc) return null;
+        url = _absUrl(Array.isArray(loc) ? loc[0] : loc, url);
+        method = 'get';      // 轉址後一律改用 GET
+        payload = null;
+        continue;
+      }
+      return null;
     }
     return null;
   }
-  return null;
+
+  s.get  = function(url) { return request(url, 'get', null); };
+  s.post = function(url, fields) { return request(url, 'post', fields); };
+  return s;
+}
+
+function _fetchWithCookies(url) {
+  return _session().get(url);
 }
 
 function _absUrl(href, base) {
