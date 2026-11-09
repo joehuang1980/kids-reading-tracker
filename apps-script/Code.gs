@@ -248,34 +248,73 @@ function lookupArBook(isbn, debug) {
 
 // 在 Apps Script 編輯器中選此函式按「執行」，可於執行記錄看到診斷結果
 function testArLookup() {
-  Logger.log(JSON.stringify(lookupArBook('9780439708180', true), null, 2));  // Harry Potter and the Sorcerer's Stone
+  var r = lookupArBook('9780439708180', true);  // Harry Potter and the Sorcerer's Stone
+  // 精簡的記錄，避免執行記錄被截斷；完整內容可用網址 ?action=ar&isbn=…&debug=1 查看
+  Logger.log('結果：' + JSON.stringify(r.ar));
+  (r.trace || []).forEach(function(t) {
+    if (typeof t === 'string') Logger.log('・' + t);
+    else if (t.url) Logger.log(t.code + ' ' + t.url + (t.location ? ' → ' + t.location : '') + (t.code === 200 ? '  「' + t.snippet.slice(0, 80) + '」' : ''));
+    else if (t.postFields) Logger.log('   送出：' + Object.keys(t.postFields).join(', '));
+  });
+}
+
+// 網站偶爾會回「An error has occurred. Please try your request again.」
+// （同樣的表單內容再送一次就會成功），所以選身分、搜尋這兩步各最多試 AR_TRIES 次。
+var AR_TRIES = 3;
+
+function _arIsError(s) {
+  return /bookfindererror/i.test(s.lastUrl);
+}
+
+// 選擇使用者身分，成功回傳之後拿到的頁面 HTML；失敗回傳 null
+function _arChooseUserType(s, base) {
+  for (var t = 0; t < AR_TRIES; t++) {
+    if (t > 0) { _note('ar: 選擇身分失敗，重試第 ' + t + ' 次'); Utilities.sleep(500); }
+    var html = s.get(base + 'usertype.aspx');
+    if (t === 0) _traceInputs('usertype', html);
+    if (!html || _arIsError(s)) continue;
+    if (!/type=["']?radio/i.test(html)) return html;   // 已經選過身分
+
+    var form  = _aspForm(html);
+    var radio = _pickRadio(html, [/parent/i, /student/i]);
+    if (radio) form.fields[radio.name] = radio.value;
+    _addSubmit(html, form.fields, null);
+    html = s.post(_absUrl(form.action || 'usertype.aspx', s.lastUrl), form.fields);
+    if (html && !_arIsError(s)) return html;
+  }
+  return null;
+}
+
+// 快速搜尋 ISBN，成功回傳搜尋結果（或詳細頁）HTML；失敗回傳 null
+function _arQuickSearch(s, base, isbn, html) {
+  for (var t = 0; t < AR_TRIES; t++) {
+    if (t > 0) { _note('ar: 搜尋失敗，重試第 ' + t + ' 次'); Utilities.sleep(500); }
+    if (!html || html.indexOf('txtKeyWords') < 0) html = s.get(base + 'default.aspx');
+    if (!html || html.indexOf('txtKeyWords') < 0) html = _arChooseUserType(s, base);  // 身分失效就重選
+    if (!html || html.indexOf('txtKeyWords') < 0) { html = null; continue; }
+    if (t === 0) _traceInputs('search', html);
+
+    var form = _aspForm(html);
+    var kw   = _inputById(html, 'txtKeyWords');
+    form.fields[kw ? kw.name : 'ctl00$ContentPlaceHolder1$txtKeyWords'] = isbn;
+    _addSubmit(html, form.fields, 'btnDoIt');
+    var result = s.post(_absUrl(form.action || 'default.aspx', s.lastUrl), form.fields);
+    if (result && !_arIsError(s)) return result;
+    html = null;   // 下一次重新取得搜尋表單
+  }
+  return null;
 }
 
 function _arSearch(base, isbn) {
   var s = _session('en-US,en;q=0.9');
 
   // 1. 選擇使用者身分（第一次進站時網站會要求）
-  var html = s.get(base + 'usertype.aspx');
-  _traceInputs('usertype', html);
-  if (html && /type=["']?radio/i.test(html)) {
-    var utForm = _aspForm(html);
-    var radio  = _pickRadio(html, [/parent/i, /student/i]);
-    if (radio) utForm.fields[radio.name] = radio.value;
-    _addSubmit(html, utForm.fields, null);
-    html = s.post(_absUrl(utForm.action || 'usertype.aspx', s.lastUrl), utForm.fields);
-  }
+  var html = _arChooseUserType(s, base);
+  if (!html) { _note('ar: ' + base + ' 選擇身分一直失敗'); return null; }
 
   // 2. 快速搜尋
-  if (!html || html.indexOf('txtKeyWords') < 0) html = s.get(base + 'default.aspx');
-  if (!html || html.indexOf('txtKeyWords') < 0) { _note('ar: 找不到搜尋框（txtKeyWords）'); return null; }
-
-  _traceInputs('search', html);
-  var form = _aspForm(html);
-  var kw   = _inputById(html, 'txtKeyWords');
-  form.fields[kw ? kw.name : 'ctl00$ContentPlaceHolder1$txtKeyWords'] = isbn;
-  _addSubmit(html, form.fields, 'btnDoIt');
-  html = s.post(_absUrl(form.action || 'default.aspx', s.lastUrl), form.fields);
-  if (!html) { _note('ar: 搜尋沒有回應'); return null; }
+  html = _arQuickSearch(s, base, isbn, html);
+  if (!html) { _note('ar: ' + base + ' 搜尋一直失敗'); return null; }
 
   // 3. 書籍詳細頁（只有一筆結果時，網站可能直接顯示詳細頁）
   if (!/lblWordCount/.test(html)) {
