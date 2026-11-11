@@ -338,12 +338,18 @@ function _arSearch(base, isbn) {
   };
 }
 
-// 書名在 detailTable 內第一個 <strong>
+// 書名：先找 id 含 Title 的元素（如 lblBookTitle），再找 detailTable 內第一個 <strong>
 function _arTitle(html) {
+  var clean = function(t) { return _decode(t.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim(); };
+  var re = /<(span|a|td|div|h\d|strong)\b[^>]*id=["'][^"']*title[^"']*["'][^>]*>([\s\S]*?)<\/\1>/gi, m;
+  while ((m = re.exec(html))) {
+    var t = clean(m[2]);
+    if (t) return t;
+  }
   var i = html.search(/id=["'][^"']*detailTable["']/i);
   if (i < 0) return '';
-  var m = html.slice(i).match(/<strong[^>]*>([\s\S]*?)<\/strong>/i);
-  return m ? _decode(m[1].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim() : '';
+  m = html.slice(i).match(/<strong[^>]*>([\s\S]*?)<\/strong>/i);
+  return m ? clean(m[1]) : '';
 }
 
 // ─── 診斷用：列出頁面上的表單欄位、送出的欄位（長字串只顯示長度）───
