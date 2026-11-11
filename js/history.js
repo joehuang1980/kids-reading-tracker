@@ -90,7 +90,7 @@ function renderList() {
       <div class="record-info">
         <div class="record-title">${escHtml(r.title)}</div>
         <div class="record-meta">
-          ${r.reader ? `👤 ${escHtml(r.reader)}　` : ''}📅 ${escHtml(r.readingDate ?? '')}${r.authors ? `<br>${escHtml(r.authors)}` : ''}${r.isbn ? `<br><span style="font-size:12px">ISBN: ${escHtml(r.isbn)}</span>` : ''}
+          ${r.reader ? `👤 ${escHtml(r.reader)}　` : ''}📅 ${escHtml(r.readingDate ?? '')}${r.authors ? `<br>${escHtml(r.authors)}` : ''}${r.wordCount ? `<br>📏 ${Number(r.wordCount).toLocaleString()} 字（AR）` : ''}${r.isbn ? `<br><span style="font-size:12px">ISBN: ${escHtml(r.isbn)}</span>` : ''}
         </div>
         ${r._pending ? '<div class="record-pending-badge">⏳ 等待同步</div>' : ''}
       </div>

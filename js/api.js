@@ -47,6 +47,7 @@ async function fetchFromGoogleBooks(isbn) {
     publisher: info.publisher ?? '',
     thumbnail: (info.imageLinks?.thumbnail ?? info.imageLinks?.smallThumbnail ?? '')
                .replace(/^http:/, 'https:'),
+    language:  info.language ?? '',
     source:    'Google Books',
   };
 }
@@ -82,6 +83,14 @@ async function fetchFromTaiwanSources(isbn) {
     thumbnail: (b.thumbnail ?? '').replace(/^http:/, 'https:'),
     source:    b.source ?? '台灣書目',
   };
+}
+
+// 英文書 AR BookFind 資料（字數等），由 Apps Script 代查；查不到回傳 null
+async function fetchArInfo(isbn) {
+  if (!CONFIG.APPS_SCRIPT_URL) return null;
+  const data = await fetchJson(
+    `${CONFIG.APPS_SCRIPT_URL}?action=ar&isbn=${encodeURIComponent(isbn)}`, 45000);
+  return data.ar ?? null;
 }
 
 // Stage 8: POST to Apps Script — no Content-Type header avoids CORS preflight

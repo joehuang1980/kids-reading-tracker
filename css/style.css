@@ -153,6 +153,27 @@ button:not(:disabled):active { opacity: .75; }
 .book-title { font-size: 20px; font-weight: 800; line-height: 1.4; }
 .book-meta  { margin-top: 6px; color: var(--muted); font-size: 14px; line-height: 1.6; }
 
+/* ===== 自拍書封 / AR 字數 ===== */
+.cover-capture {
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: var(--r-sm);
+  border: 1px dashed var(--border);
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+.cover-capture-body { flex: 1; min-width: 0; }
+.cover-capture-body .hint { margin: 0 0 10px; }
+.ar-box {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: var(--r-sm);
+  background: #eff6ff;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
 /* ===== Scanner ===== */
 #scanner-container {
   margin-top: 14px;
